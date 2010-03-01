@@ -48,12 +48,14 @@ namespace :sitemap do
 
     Rake::Task['sitemap:clean'].invoke
 
-    s3_enabled = (!SitemapGenerator::Sitemap.s3_access_key_id.blank? && !SitemapGenerator::Sitemap.s3_secret_access_key.blank? && !SitemapGenerator::Sitemap.s3_bucket_name.blank?)
+
+    s3_enabled = !SitemapGenerator::Sitemap.s3_credentials.blank?
     local_storage = (s3_enabled ? 'tmp' : 'public')
     if s3_enabled
+      s3_credentials = YAML.load_file(SitemapGenerator::Sitemap.s3_credentials)[RAILS_ENV].symbolize_keys!
       AWS::S3::Base.establish_connection!(
-        :access_key_id => SitemapGenerator::Sitemap.s3_access_key_id, 
-        :secret_access_key => SitemapGenerator::Sitemap.s3_secret_access_key
+        :access_key_id => s3_credentials[:access_key_id],
+        :secret_access_key => s3_credentials[:secret_access_key]
       )
     end
 
@@ -71,8 +73,7 @@ namespace :sitemap do
       puts "** Sitemap too big! The uncompressed size exceeds 10Mb" if (buffer.size > 10 * 1024 * 1024) && verbose
       sitemap_files << filename
       if s3_enabled
-        AWS::S3::S3Object.store(File.basename(filename), open(filename), SitemapGenerator::Sitemap.s3_bucket_name, :access => :public_read)
-        puts " [uploaded to S3:#{SitemapGenerator::Sitemap.s3_bucket_name}]" if verbose
+        save_to_bucket(filename,s3_credentials[:bucket])
       end
     end
 
@@ -88,12 +89,17 @@ namespace :sitemap do
     puts "** Sitemap Index too big! The uncompressed size exceeds 10Mb" if (buffer.size > 10 * 1024 * 1024) && verbose
 
     if s3_enabled
-      AWS::S3::S3Object.store(File.basename(filename), open(filename), SitemapGenerator::Sitemap.s3_bucket_name, :access => :public_read)
-      puts " [uploaded to S3:#{SitemapGenerator::Sitemap.s3_bucket_name}]" if verbose
+      save_to_bucket(filename,s3_credentials[:bucket])
     end
 
     stop_time = Time.now
     puts "Sitemap stats: #{number_with_delimiter(SitemapGenerator::Sitemap.links.length)} links, " + ("%dm%02ds" % (stop_time - start_time).divmod(60)) if verbose
   end
-  
+
+  def save_to_bucket(filename,bucket)
+    AWS::S3::S3Object.store(File.basename(filename), open(filename), bucket, :access => :public_read)
+    puts " [uploaded to S3:#{bucket}]" if verbose
+  end
+
 end
+
